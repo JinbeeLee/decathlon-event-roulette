@@ -1,0 +1,931 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DECATHLON STORE ROULETTE</title>
+
+<style>
+:root {
+  --blue: #3546C0;
+  --blue-light: #5365E8;
+  --navy: #090D1A;
+  --panel: #151D32;
+  --line: #303C5B;
+  --white: #F5F7FF;
+  --muted: #A3ADC5;
+  --gold: #F5C451;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 50% 0%, #24347C, transparent 55%),
+    var(--navy);
+  color: var(--white);
+  font-family: Arial, "Noto Sans KR", sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 25px;
+  border-bottom: 1px solid #ffffff20;
+}
+
+.logo {
+  width: 220px;
+  max-width: 48%;
+  height: auto;
+  object-fit: contain;
+}
+
+.header-label {
+  font-size: 11px;
+  letter-spacing: 2px;
+  font-weight: bold;
+  color: #C4CBFF;
+}
+
+main {
+  max-width: 1200px;
+  margin: 25px auto;
+  padding: 0 18px;
+  display: grid;
+  grid-template-columns: 1.4fr .8fr;
+  gap: 20px;
+}
+
+.panel {
+  background: linear-gradient(145deg, #18213A, #101729);
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  padding: 22px;
+}
+
+h1 { font-size: 27px; margin: 0 0 8px; }
+
+.subtitle {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+.wheel-area {
+  position: relative;
+  width: min(100%, 620px);
+  aspect-ratio: 1;
+  margin: 0 auto;
+}
+
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.pointer {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 17px solid transparent;
+  border-right: 17px solid transparent;
+  border-top: 37px solid var(--gold);
+  filter: drop-shadow(0 3px 5px #0008);
+}
+
+.hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 75px;
+  height: 75px;
+  border-radius: 50%;
+  background: var(--navy);
+  border: 5px solid white;
+  outline: 5px solid var(--blue);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: center;
+  pointer-events: none;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 9px;
+  padding: 12px 17px;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.primary {
+  background: var(--blue-light);
+  color: white;
+  min-width: 180px;
+  font-size: 16px;
+}
+
+.secondary {
+  background: #283451;
+  color: white;
+  border: 1px solid #405071;
+}
+
+.gold {
+  background: var(--gold);
+  color: #17130A;
+}
+
+.result {
+  display: none;
+  text-align: center;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #F5C45180;
+  border-radius: 12px;
+  background: #F5C45115;
+}
+
+.result small {
+  color: var(--gold);
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+
+.result strong {
+  display: block;
+  font-size: 35px;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+.status {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 13px;
+  min-height: 17px;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  font-weight: bold;
+  margin-bottom: 7px;
+  color: #D6DDF2;
+}
+
+input, select {
+  width: 100%;
+  background: #0B1223;
+  color: white;
+  border: 1px solid #354260;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+}
+
+.field { margin-bottom: 15px; }
+
+.prize-list {
+  display: grid;
+  gap: 9px;
+  margin: 15px 0;
+}
+
+.prize-row {
+  display: grid;
+  grid-template-columns: 9px 1fr 85px;
+  gap: 9px;
+  align-items: center;
+  background: #0B1223;
+  padding: 9px;
+  border-radius: 9px;
+  border: 1px solid #293653;
+}
+
+.swatch {
+  height: 30px;
+  border-radius: 4px;
+}
+
+.prize-row input {
+  min-width: 0;
+  padding: 8px;
+}
+
+.total {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  background: #0B1223;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.total strong { color: var(--gold); }
+
+.event-buttons {
+  display: flex;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.event-buttons button {
+  flex: 1;
+  padding: 10px 5px;
+  font-size: 12px;
+}
+
+.note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin-top: 13px;
+}
+
+footer {
+  text-align: center;
+  color: #71809F;
+  font-size: 10px;
+  padding: 15px;
+}
+
+/* 전체 화면 */
+
+.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, #25377F, #090D1A 75%);
+  padding: 15px;
+  overflow: auto;
+}
+
+.fullscreen.active { display: flex; }
+
+.fullscreen .fs-header {
+  width: min(100%, 1000px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.fullscreen .wheel-area {
+  width: min(75vh, 80vw, 760px);
+}
+
+@media(max-width:800px) {
+  main {
+    grid-template-columns: 1fr;
+    padding: 0 12px;
+  }
+
+  .panel { padding: 16px; }
+  header { padding: 12px 16px; }
+  h1 { font-size: 22px; }
+}
+
+@media(max-width:430px) {
+  .fullscreen .wheel-area {
+    width: min(88vw, 65vh);
+  }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <img class="logo" src="decathlon-logo.jpg" alt="DECATHLON">
+  <div class="header-label">STORE EVENT ROULETTE</div>
+</header>
+
+<main>
+
+<section class="panel">
+
+  <h1>오늘의 행운을 돌려보세요!</h1>
+  <div class="subtitle">DECATHLON STORE EVENT · SPIN & WIN</div>
+
+  <div class="wheel-area">
+    <div class="pointer"></div>
+    <canvas id="wheel" width="900" height="900"></canvas>
+    <div class="hub">GOOD<br>LUCK</div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="spin">룰렛 돌리기</button>
+    <button class="secondary" id="fullscreenBtn">전체 화면</button>
+  </div>
+
+  <div class="result" id="result">
+    <small>CONGRATULATIONS!</small>
+    <strong id="winner"></strong>
+  </div>
+
+  <div class="status" id="status">
+    행운의 주인공은 누구일까요?
+  </div>
+
+</section>
+
+<aside class="panel">
+
+  <h1>이벤트 관리</h1>
+  <div class="subtitle">이벤트별 룰렛 설정 및 경품 관리</div>
+
+  <div class="field">
+    <label>저장된 이벤트</label>
+    <select id="eventSelect"></select>
+    <div class="event-buttons">
+      <button class="secondary" id="newEvent">+ 새 이벤트</button>
+      <button class="secondary" id="deleteEvent">삭제</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>이벤트 이름</label>
+    <input id="eventName" maxlength="40">
+  </div>
+
+  <label>경품 및 당첨 수량</label>
+  <div class="prize-list" id="prizeList"></div>
+
+  <div class="total">
+    <span>남은 경품 수량</span>
+    <strong id="totalQty">816개</strong>
+  </div>
+
+  <div class="controls">
+    <button class="secondary" id="save">이벤트 저장</button>
+    <button class="gold" id="resetStock">수량 초기화</button>
+  </div>
+
+  <div class="note">
+    ※ 당첨 확률은 남은 경품 수량에 비례합니다.<br>
+    ※ 당첨 시 해당 경품 수량이 1개 차감됩니다.<br>
+    ※ 0개가 된 경품은 추첨 대상에서 제외됩니다.<br>
+    ※ 당첨 이력은 저장하지 않습니다.<br>
+    ※ 이벤트 설정과 재고는 현재 브라우저에 저장됩니다.
+  </div>
+
+</aside>
+</main>
+
+<footer>DECATHLON · PLAY FAIR · HAVE FUN</footer>
+
+<!-- FULLSCREEN -->
+<div class="fullscreen" id="fullScreen">
+
+  <div class="fs-header">
+    <img class="logo" src="decathlon-logo.jpg" alt="DECATHLON">
+    <button class="secondary" id="exitFullscreen">닫기 ✕</button>
+  </div>
+
+  <div class="wheel-area">
+    <div class="pointer"></div>
+    <canvas id="wheelFull" width="900" height="900"></canvas>
+    <div class="hub">GOOD<br>LUCK</div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="spinFull">룰렛 돌리기</button>
+  </div>
+
+  <div class="result" id="resultFull">
+    <small>CONGRATULATIONS!</small>
+    <strong id="winnerFull"></strong>
+  </div>
+
+  <div class="status" id="statusFull">GOOD LUCK!</div>
+
+</div>
+
+<script>
+const STORAGE_KEY = "decathlon_event_roulette_v1";
+
+const COLORS = [
+  "#3546C0",
+  "#5265E8",
+  "#192C5B",
+  "#697AFF",
+  "#263C78"
+];
+
+const DEFAULT_PRIZES = [
+  {name:"1등", qty:1},
+  {name:"2등", qty:5},
+  {name:"3등", qty:10},
+  {name:"4등상", qty:300},
+  {name:"5등상", qty:500}
+];
+
+let events = {};
+let activeId = "";
+let prizes = [];
+let rotation = 0;
+let busy = false;
+
+const $ = id => document.getElementById(id);
+
+const canvas = $("wheel");
+const ctx = canvas.getContext("2d");
+
+const fullCanvas = $("wheelFull");
+const fctx = fullCanvas.getContext("2d");
+
+function newId() {
+  return "event_" + Date.now() +
+    "_" + Math.random().toString(36).slice(2,6);
+}
+
+function copyDefaults() {
+  return DEFAULT_PRIZES.map(p => ({
+    name:p.name,
+    qty:p.qty,
+    remaining:p.qty
+  }));
+}
+
+function persist() {
+  try {
+    localStorage.setItem(STORAGE_KEY,
+      JSON.stringify({events, activeId}));
+  } catch(e) {
+    alert("브라우저 저장 공간을 확인해주세요.");
+  }
+}
+
+function loadData() {
+  try {
+    const data = JSON.parse(
+      localStorage.getItem(STORAGE_KEY) || "null"
+    );
+
+    if(data && data.events) {
+      events = data.events;
+      activeId = data.activeId;
+    }
+  } catch(e) {}
+
+  if(!Object.keys(events).length) {
+    activeId = newId();
+
+    events[activeId] = {
+      name:"기본 이벤트",
+      prizes:copyDefaults()
+    };
+  }
+
+  if(!events[activeId]) {
+    activeId = Object.keys(events)[0];
+  }
+
+  loadEvent(activeId);
+}
+
+function loadEvent(id) {
+  activeId = id;
+
+  const event = events[id];
+
+  prizes = event.prizes.map(p => ({
+    name:p.name,
+    qty:p.qty,
+    remaining:p.remaining
+  }));
+
+  $("eventName").value = event.name;
+
+  rotation = 0;
+
+  renderEventSelect();
+  renderPrizes();
+  hideResults();
+  drawBoth();
+  setStatus("이벤트가 준비되었습니다.");
+
+  persist();
+}
+
+function saveEvent() {
+  events[activeId] = {
+    name:$("eventName").value.trim() || "새 이벤트",
+    prizes:prizes.map(p => ({...p}))
+  };
+
+  persist();
+  renderEventSelect();
+  $("eventSelect").value = activeId;
+}
+
+function renderEventSelect() {
+  const select = $("eventSelect");
+  select.innerHTML = "";
+
+  Object.entries(events).forEach(([id,event]) => {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = event.name;
+    select.appendChild(option);
+  });
+
+  select.value = activeId;
+}
+
+function renderPrizes() {
+  const box = $("prizeList");
+  box.innerHTML = "";
+
+  prizes.forEach((prize,index) => {
+    const row = document.createElement("div");
+    row.className = "prize-row";
+
+    const swatch = document.createElement("div");
+    swatch.className = "swatch";
+    swatch.style.background = COLORS[index % COLORS.length];
+
+    const name = document.createElement("input");
+    name.value = prize.name;
+    name.setAttribute("aria-label","경품 이름");
+
+    name.addEventListener("change", () => {
+      prizes[index].name = name.value.trim() || "경품";
+      saveEvent();
+      drawBoth();
+    });
+
+    const qty = document.createElement("input");
+    qty.type = "number";
+    qty.min = "0";
+    qty.max = "999999";
+    qty.value = prize.qty;
+    qty.title = "초기 경품 수량";
+
+    qty.addEventListener("change", () => {
+      const value = Math.max(0,
+        Math.floor(Number(qty.value) || 0));
+
+      prizes[index].qty = value;
+      prizes[index].remaining = Math.min(
+        prizes[index].remaining, value
+      );
+
+      renderPrizes();
+      saveEvent();
+      drawBoth();
+    });
+
+    row.append(swatch,name,qty);
+    box.appendChild(row);
+  });
+
+  updateTotal();
+}
+
+function updateTotal() {
+  const total = prizes.reduce(
+    (sum,p) => sum + p.remaining, 0
+  );
+
+  $("totalQty").textContent =
+    total.toLocaleString() + "개";
+}
+
+function setStatus(message) {
+  $("status").textContent = message;
+  $("statusFull").textContent = message;
+}
+
+function hideResults() {
+  $("result").style.display = "none";
+  $("resultFull").style.display = "none";
+}
+
+function draw(canvasElement,context) {
+  const total = prizes.reduce(
+    (sum,p) => sum + p.remaining, 0
+  );
+
+  context.clearRect(0,0,900,900);
+
+  if(total <= 0) return;
+
+  let angle = rotation - Math.PI / 2;
+
+  prizes.forEach((prize,index) => {
+    if(prize.remaining <= 0) return;
+
+    const arc = Math.PI * 2 *
+      prize.remaining / total;
+
+    const start = angle;
+    const end = start + arc;
+
+    context.beginPath();
+    context.moveTo(450,450);
+    context.arc(450,450,415,start,end);
+    context.closePath();
+
+    context.fillStyle =
+      COLORS[index % COLORS.length];
+
+    context.fill();
+
+    context.strokeStyle = "#FFFFFF";
+    context.lineWidth = 4;
+    context.stroke();
+
+    if(arc > 0.045) {
+      context.save();
+
+      context.translate(450,450);
+      context.rotate(start + arc / 2);
+
+      context.textAlign = "right";
+      context.textBaseline = "middle";
+      context.fillStyle = "#FFFFFF";
+
+      context.font = "bold 25px Arial, sans-serif";
+
+      context.fillText(
+        prize.name,
+        385,
+        0
+      );
+
+      context.restore();
+    }
+
+    angle = end;
+  });
+
+  context.beginPath();
+  context.arc(450,450,415,0,Math.PI*2);
+  context.strokeStyle = "#FFFFFF";
+  context.lineWidth = 9;
+  context.stroke();
+}
+
+function drawBoth() {
+  draw(canvas,ctx);
+  draw(fullCanvas,fctx);
+}
+
+/* 수량에 비례한 랜덤 추첨 */
+
+function selectWinner() {
+  const total = prizes.reduce(
+    (sum,p) => sum + p.remaining, 0
+  );
+
+  if(total <= 0) return -1;
+
+  let random = Math.random() * total;
+
+  for(let i=0; i<prizes.length; i++) {
+    random -= prizes[i].remaining;
+
+    if(random < 0) return i;
+  }
+
+  return -1;
+}
+
+function spin() {
+  if(busy) return;
+
+  const index = selectWinner();
+
+  if(index < 0) {
+    setStatus("남은 경품이 없습니다.");
+    return;
+  }
+
+  busy = true;
+
+  $("spin").disabled = true;
+  $("spinFull").disabled = true;
+
+  hideResults();
+
+  const total = prizes.reduce(
+    (sum,p) => sum + p.remaining, 0
+  );
+
+  const arc = Math.PI * 2 *
+    prizes[index].remaining / total;
+
+  let before = 0;
+
+  for(let i=0; i<index; i++) {
+    before += Math.PI * 2 *
+      prizes[i].remaining / total;
+  }
+
+  const target =
+    -(before + arc / 2);
+
+  const current =
+    ((rotation % (Math.PI*2)) + Math.PI*2) %
+    (Math.PI*2);
+
+  let delta =
+    ((target-current) % (Math.PI*2) + Math.PI*2) %
+    (Math.PI*2);
+
+  delta += Math.PI*2*(5 +
+    Math.floor(Math.random()*3));
+
+  const start = rotation;
+  const duration = 4800;
+  const begin = performance.now();
+
+  setStatus("행운의 경품을 추첨하고 있습니다...");
+
+  function animate(now) {
+    const progress = Math.min(
+      1,(now-begin)/duration
+    );
+
+    const ease =
+      1-Math.pow(1-progress,5);
+
+    rotation = start + delta*ease;
+
+    drawBoth();
+
+    if(progress < 1) {
+      requestAnimationFrame(animate);
+      return;
+    }
+
+    rotation = target;
+
+    // 당첨된 경품 한 개 차감
+    prizes[index].remaining--;
+
+    saveEvent();
+    renderPrizes();
+    drawBoth();
+
+    const winner = prizes[index].name;
+
+    $("winner").textContent = winner;
+    $("winnerFull").textContent = winner;
+
+    $("result").style.display = "block";
+    $("resultFull").style.display = "block";
+
+    setStatus(
+      winner + " 당첨! 남은 경품 " +
+      prizes.reduce((s,p) => s+p.remaining,0) +
+      "개"
+    );
+
+    busy = false;
+
+    $("spin").disabled = false;
+    $("spinFull").disabled = false;
+  }
+
+  requestAnimationFrame(animate);
+}
+
+/* 이벤트 관리 */
+
+$("save").onclick = () => {
+  saveEvent();
+  setStatus("이벤트가 저장되었습니다.");
+};
+
+$("eventName").addEventListener("change",saveEvent);
+
+$("eventSelect").onchange = e => {
+  loadEvent(e.target.value);
+};
+
+$("newEvent").onclick = () => {
+  const id = newId();
+
+  events[id] = {
+    name:"새 이벤트",
+    prizes:copyDefaults()
+  };
+
+  persist();
+  loadEvent(id);
+
+  $("eventName").focus();
+  $("eventName").select();
+};
+
+$("deleteEvent").onclick = () => {
+  if(Object.keys(events).length <= 1) {
+    alert("최소 하나의 이벤트가 필요합니다.");
+    return;
+  }
+
+  if(!confirm("현재 이벤트를 삭제할까요?")) return;
+
+  delete events[activeId];
+
+  activeId = Object.keys(events)[0];
+
+  persist();
+  loadEvent(activeId);
+};
+
+$("resetStock").onclick = () => {
+  if(!confirm("경품 수량을 초기화할까요?")) return;
+
+  prizes.forEach(p => {
+    p.remaining = p.qty;
+  });
+
+  saveEvent();
+  renderPrizes();
+  drawBoth();
+  hideResults();
+
+  setStatus("경품 수량이 초기화되었습니다.");
+};
+
+/* 전체 화면 */
+
+const full = $("fullScreen");
+
+$("fullscreenBtn").onclick = async () => {
+  full.classList.add("active");
+
+  if(full.requestFullscreen) {
+    try { await full.requestFullscreen(); }
+    catch(e) {}
+  }
+};
+
+function closeFullscreen() {
+  full.classList.remove("active");
+
+  if(document.fullscreenElement) {
+    document.exitFullscreen().catch(()=>{});
+  }
+}
+
+$("exitFullscreen").onclick = closeFullscreen;
+
+document.addEventListener("fullscreenchange",() => {
+  if(!document.fullscreenElement) {
+    full.classList.remove("active");
+  }
+});
+
+document.addEventListener("keydown",e => {
+  if(e.key === "Escape") closeFullscreen();
+});
+
+/* 버튼 연결 */
+
+$("spin").onclick = spin;
+$("spinFull").onclick = spin;
+
+/* 시작 */
+
+loadData();
+
+</script>
+
+</body>
+</html>
+
