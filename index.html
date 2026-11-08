@@ -386,7 +386,7 @@ body.admin-operator #modeBtn { background:var(--gold); color:#17130A; }
   </div>
 
   <div class="result" id="result">
-    <small>CONGRATULATIONS!</small>
+    <small>CONGRATULATIONS! 축하합니다!</small>
     <strong id="winner"></strong>
   </div>
 
@@ -616,7 +616,7 @@ async function spin() {
     rotation=target;
     $("winner").textContent=winner.prize_name; $("winnerFull").textContent=winner.prize_name;
     $("result").style.display="block"; $("resultFull").style.display="block"; resultHeld=true;
-    setStatus(`${winner.prize_name} 당첨! 재고가 서버에서 차감되었습니다.`);
+    setStatus(`${winner.prize_name} 당첨! 참여해주셔서 감사합니다.`);
   } catch(e) {
     console.error(e);
     setStatus("추첨 오류: "+errorText(e));
