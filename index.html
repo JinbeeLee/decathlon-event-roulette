@@ -334,6 +334,11 @@ footer {
 .admin-only { display:none; }
 body.is-admin .admin-only { display:block; }
 body.is-admin .admin-inline { display:flex; }
+body:not(.is-admin) #appMain { grid-template-columns: minmax(0, 1fr); max-width: 950px; }
+body:not(.is-admin) #appMain aside { display:none; }
+body.admin-operator #appMain { grid-template-columns: minmax(0, 1fr); max-width: 950px; }
+body.admin-operator #appMain aside { display:none; }
+body.admin-operator #modeBtn { background:var(--gold); color:#17130A; }
 .admin-inline { display:none; }
 #prizeList .prize-row .stock-label { color:var(--muted); font-size:12px; text-align:right; }
 #prizeList .prize-row { grid-template-columns:9px 1fr 85px; }
@@ -361,7 +366,7 @@ body.is-admin .admin-inline { display:flex; }
     <div class="note">관리자에게 발급받은 계정으로 로그인해 주세요.</div>
   </section>
 </div>
-<div class="session-bar" id="sessionBar"><span id="sessionInfo"></span><button class="secondary" id="logoutBtn">로그아웃</button></div>
+<div class="session-bar" id="sessionBar"><button class="secondary admin-only" id="modeBtn">운영 화면</button><span id="sessionInfo"></span><button class="secondary" id="logoutBtn">로그아웃</button></div>
 <main id="appMain">
 
 <section class="panel">
@@ -372,7 +377,7 @@ body.is-admin .admin-inline { display:flex; }
   <div class="wheel-area">
     <div class="pointer"></div>
     <canvas id="wheel" width="900" height="900"></canvas>
-    <div class="hub">GOOD<br>LUCK</div>
+    <div class="hub">Gimpo<br>1주년</div>
   </div>
 
   <div class="controls">
@@ -447,7 +452,7 @@ body.is-admin .admin-inline { display:flex; }
   <div class="wheel-area">
     <div class="pointer"></div>
     <canvas id="wheelFull" width="900" height="900"></canvas>
-    <div class="hub">GOOD<br>LUCK</div>
+    <div class="hub">Gimpo<br>1주년</div>
   </div>
 
   <div class="controls">
@@ -479,9 +484,10 @@ const canvas = $("wheel"), ctx = canvas.getContext("2d");
 const fullCanvas = $("wheelFull"), fctx = fullCanvas.getContext("2d");
 let db, currentUser = null, isAdmin = false, events = [], activeId = "", prizes = [];
 let rotation = 0, busy = false, refreshTimer = null, subscription = null, loadSeq = 0;
+let resultHeld = false;
 const configured = SUPABASE_URL.startsWith("https://") && SUPABASE_PUBLISHABLE_KEY.startsWith("sb_publishable_");
 function setStatus(message) { $("status").textContent = message; $("statusFull").textContent = message; }
-function hideResults() { $("result").style.display = "none"; $("resultFull").style.display = "none"; }
+function hideResults() { resultHeld=false; $("result").style.display = "none"; $("resultFull").style.display = "none"; }
 function errorText(err) { return err?.message || String(err || "알 수 없는 오류"); }
 function showError(err) { alert(errorText(err)); console.error(err); }
 function setSpinDisabled(disabled) { $("spin").disabled = disabled; $("spinFull").disabled = disabled; }
@@ -539,6 +545,7 @@ async function loadEvents(preferredId=activeId) {
   if(seq!==loadSeq || busy) return;
   events=data||[];
   const nextId=events.some(e=>e.id===preferredId)?preferredId:(events[0]?.id||"");
+  if(activeId!==nextId) hideResults();
   activeId=nextId; renderEventSelect();
   if(!activeId) { prizes=[]; $("eventName").value=""; renderPrizes(); drawBoth(); setStatus(isAdmin?"새 이벤트를 생성해 주세요.":"사용 가능한 이벤트가 없습니다."); return; }
   await loadEvent(activeId);
@@ -551,9 +558,12 @@ async function loadEvent(id) {
   const {data,error}=await db.from("prizes").select("id,event_id,prize_name,initial_qty,remaining_qty,display_order,color").eq("event_id",id).order("display_order",{ascending:true}).order("id",{ascending:true});
   if(error) throw error;
   if(seq!==loadSeq || busy) return;
-  activeId=id; prizes=data||[]; rotation=0;
-  $("eventName").value=event.event_name; renderEventSelect(); renderPrizes(); hideResults(); drawBoth();
-  setStatus(event.is_active?"이벤트가 준비되었습니다.":"비활성화된 이벤트입니다.");
+  const sameEvent=activeId===id;
+  activeId=id; prizes=data||[];
+  if(!sameEvent) { rotation=0; hideResults(); }
+  $("eventName").value=event.event_name; renderEventSelect(); renderPrizes();
+  if(!resultHeld) drawBoth();
+  if(!resultHeld) setStatus(event.is_active?"이벤트가 준비되었습니다.":"비활성화된 이벤트입니다.");
   setSpinDisabled(!event.is_active || !prizes.some(p=>p.remaining_qty>0));
 }
 function scheduleRefresh() {
@@ -574,7 +584,7 @@ async function spin() {
   if(busy || !activeId) return;
   const event=events.find(e=>e.id===activeId);
   if(!event?.is_active) {setStatus("비활성 이벤트는 추첨할 수 없습니다."); return;}
-  busy=true; setSpinDisabled(true); hideResults();
+  busy=true; setSpinDisabled(true); hideResults(); drawBoth();
   const eventId=activeId;
   const snapshot=prizes.map(p=>({...p}));
   setStatus("당첨 결과를 확인하고 있습니다...");
@@ -585,7 +595,7 @@ async function spin() {
     const winner=data?.[0];
     if(!winner) throw new Error("당첨 결과를 받지 못했습니다. 관리자에게 재고를 확인해 주세요.");
     const index=snapshot.findIndex(p=>p.id===winner.prize_id);
-    if(index<0) {setStatus(`${winner.prize_name} 당첨!`); $("winner").textContent=winner.prize_name; $("winnerFull").textContent=winner.prize_name; $("result").style.display="block"; $("resultFull").style.display="block"; return;}
+    if(index<0) {setStatus(`${winner.prize_name} 당첨!`); $("winner").textContent=winner.prize_name; $("winnerFull").textContent=winner.prize_name; $("result").style.display="block"; $("resultFull").style.display="block"; resultHeld=true; return;}
     const total=snapshot.reduce((n,p)=>n+p.remaining_qty,0);
     const arc=Math.PI*2*snapshot[index].remaining_qty/total;
     const before=snapshot.slice(0,index).reduce((n,p)=>n+Math.PI*2*p.remaining_qty/total,0);
@@ -605,7 +615,7 @@ async function spin() {
     });
     rotation=target;
     $("winner").textContent=winner.prize_name; $("winnerFull").textContent=winner.prize_name;
-    $("result").style.display="block"; $("resultFull").style.display="block";
+    $("result").style.display="block"; $("resultFull").style.display="block"; resultHeld=true;
     setStatus(`${winner.prize_name} 당첨! 재고가 서버에서 차감되었습니다.`);
   } catch(e) {
     console.error(e);
@@ -680,6 +690,8 @@ async function showApp(session) {
   if(error) throw new Error("프로필을 읽을 수 없습니다: "+error.message);
   isAdmin=data.role==="admin";
   document.body.classList.toggle("is-admin",isAdmin);
+  document.body.classList.remove("admin-operator");
+  $("modeBtn").textContent="운영 화면";
   $("authScreen").style.display="none"; $("sessionBar").style.display="flex"; $("appMain").style.display="grid";
   $("sessionInfo").textContent=`${currentUser.email} · ${isAdmin?"관리자":"직원"}`;
   $("asideTitle").textContent=isAdmin?"이벤트 관리":"이벤트 현황";
@@ -691,7 +703,7 @@ async function signOut() {
   const {error}=await db.auth.signOut(); if(error) return showError(error);
   currentUser=null; isAdmin=false; events=[]; activeId=""; prizes=[];
   $("authScreen").style.display="grid"; $("sessionBar").style.display="none"; $("appMain").style.display="none";
-  $("loginPassword").value=""; document.body.classList.remove("is-admin");
+  $("loginPassword").value=""; document.body.classList.remove("is-admin","admin-operator");
 }
 $("loginBtn").onclick=async()=>{
   $("authError").textContent="";
@@ -705,7 +717,11 @@ $("loginBtn").onclick=async()=>{
 };
 $("loginPassword").addEventListener("keydown",e=>{if(e.key==="Enter") $("loginBtn").click();});
 $("logoutBtn").onclick=signOut;
-$("eventSelect").onchange=async e=>{try{await loadEvent(e.target.value);}catch(err){showError(err);}};
+$("modeBtn").onclick=()=>{
+  document.body.classList.toggle("admin-operator");
+  $("modeBtn").textContent=document.body.classList.contains("admin-operator")?"관리 화면":"운영 화면";
+};
+$("eventSelect").onchange=async e=>{try{hideResults(); await loadEvent(e.target.value);}catch(err){showError(err);}};
 $("save").onclick=saveEvent; $("newEvent").onclick=newEvent;
 $("deleteEvent").onclick=deleteEvent; $("resetStock").onclick=resetStock;
 $("spin").onclick=spin; $("spinFull").onclick=spin;
