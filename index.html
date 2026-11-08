@@ -321,6 +321,25 @@ footer {
     width: min(88vw, 65vh);
   }
 }
+
+/* Supabase login and role controls */
+.auth-screen { min-height:75vh; display:grid; place-items:center; padding:24px; }
+.auth-card { width:min(100%,420px); }
+.auth-card h1 { margin-bottom:12px; }
+.auth-card .primary { width:100%; }
+.auth-error { color:#ffb2b2; font-size:13px; min-height:18px; margin-top:10px; }
+.session-bar { display:none; align-items:center; justify-content:flex-end; gap:12px; padding:10px 25px; color:var(--muted); font-size:12px; }
+.session-bar button { padding:7px 12px; }
+#appMain { display:none; }
+.admin-only { display:none; }
+body.is-admin .admin-only { display:block; }
+body.is-admin .admin-inline { display:flex; }
+.admin-inline { display:none; }
+#prizeList .prize-row .stock-label { color:var(--muted); font-size:12px; text-align:right; }
+#prizeList .prize-row { grid-template-columns:9px 1fr 85px; }
+#prizeList .prize-row input:disabled { opacity:1; border-color:transparent; background:transparent; }
+#eventName:disabled { opacity:1; border-color:transparent; background:transparent; }
+@media(max-width:500px){ .session-bar {padding:10px 14px;} }
 </style>
 </head>
 
@@ -331,7 +350,19 @@ footer {
   <div class="header-label">STORE EVENT ROULETTE</div>
 </header>
 
-<main>
+<div id="authScreen" class="auth-screen">
+  <section class="panel auth-card">
+    <h1>직원 로그인</h1>
+    <div class="subtitle">DECATHLON STORE EVENT · SUPABASE</div>
+    <div class="field"><label for="loginEmail">이메일</label><input id="loginEmail" type="email" autocomplete="username"></div>
+    <div class="field"><label for="loginPassword">비밀번호</label><input id="loginPassword" type="password" autocomplete="current-password"></div>
+    <button class="primary" id="loginBtn">로그인</button>
+    <div class="auth-error" id="authError"></div>
+    <div class="note">관리자에게 발급받은 계정으로 로그인해 주세요.</div>
+  </section>
+</div>
+<div class="session-bar" id="sessionBar"><span id="sessionInfo"></span><button class="secondary" id="logoutBtn">로그아웃</button></div>
+<main id="appMain">
 
 <section class="panel">
 
@@ -362,13 +393,13 @@ footer {
 
 <aside class="panel">
 
-  <h1>이벤트 관리</h1>
+  <h1 id="asideTitle">이벤트 현황</h1>
   <div class="subtitle">이벤트별 룰렛 설정 및 경품 관리</div>
 
   <div class="field">
     <label>저장된 이벤트</label>
     <select id="eventSelect"></select>
-    <div class="event-buttons">
+    <div class="event-buttons admin-inline">
       <button class="secondary" id="newEvent">+ 새 이벤트</button>
       <button class="secondary" id="deleteEvent">삭제</button>
     </div>
@@ -387,7 +418,7 @@ footer {
     <strong id="totalQty">816개</strong>
   </div>
 
-  <div class="controls">
+  <div class="controls admin-inline">
     <button class="secondary" id="save">이벤트 저장</button>
     <button class="gold" id="resetStock">수량 초기화</button>
   </div>
@@ -397,7 +428,7 @@ footer {
     ※ 당첨 시 해당 경품 수량이 1개 차감됩니다.<br>
     ※ 0개가 된 경품은 추첨 대상에서 제외됩니다.<br>
     ※ 당첨 이력은 저장하지 않습니다.<br>
-    ※ 이벤트 설정과 재고는 현재 브라우저에 저장됩니다.
+    ※ 이벤트 설정과 재고는 Supabase에서 모든 기기에 공유됩니다.
   </div>
 
 </aside>
@@ -432,498 +463,265 @@ footer {
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
-const STORAGE_KEY = "decathlon_event_roulette_v1";
-
-const COLORS = [
-  "#3546C0",
-  "#5265E8",
-  "#192C5B",
-  "#697AFF",
-  "#263C78"
-];
-
+// 아래 두 값만 본인의 Supabase 프로젝트 값으로 바꾸세요.
+const SUPABASE_URL = "https://jaweubwewhwgomtkfitt.supabase.co/rest/v1/";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_quj5iubR3OTeU13Jzba4NA_zMWj3aII";
+const COLORS = ["#3546C0", "#5265E8", "#192C5B", "#697AFF", "#263C78"];
 const DEFAULT_PRIZES = [
-  {name:"1등", qty:1},
-  {name:"2등", qty:5},
-  {name:"3등", qty:10},
-  {name:"4등상", qty:300},
-  {name:"5등상", qty:500}
+  {prize_name:"1등", initial_qty:1}, {prize_name:"2등", initial_qty:5},
+  {prize_name:"3등", initial_qty:10}, {prize_name:"4등상", initial_qty:300},
+  {prize_name:"5등상", initial_qty:500}
 ];
-
-let events = {};
-let activeId = "";
-let prizes = [];
-let rotation = 0;
-let busy = false;
-
 const $ = id => document.getElementById(id);
-
-const canvas = $("wheel");
-const ctx = canvas.getContext("2d");
-
-const fullCanvas = $("wheelFull");
-const fctx = fullCanvas.getContext("2d");
-
-function newId() {
-  return "event_" + Date.now() +
-    "_" + Math.random().toString(36).slice(2,6);
+const canvas = $("wheel"), ctx = canvas.getContext("2d");
+const fullCanvas = $("wheelFull"), fctx = fullCanvas.getContext("2d");
+let db, currentUser = null, isAdmin = false, events = [], activeId = "", prizes = [];
+let rotation = 0, busy = false, refreshTimer = null, subscription = null, loadSeq = 0;
+const configured = SUPABASE_URL.startsWith("https://") && SUPABASE_PUBLISHABLE_KEY.startsWith("sb_publishable_");
+function setStatus(message) { $("status").textContent = message; $("statusFull").textContent = message; }
+function hideResults() { $("result").style.display = "none"; $("resultFull").style.display = "none"; }
+function errorText(err) { return err?.message || String(err || "알 수 없는 오류"); }
+function showError(err) { alert(errorText(err)); console.error(err); }
+function setSpinDisabled(disabled) { $("spin").disabled = disabled; $("spinFull").disabled = disabled; }
+function updateTotal() {
+  $("totalQty").textContent = prizes.reduce((n,p)=>n+p.remaining_qty,0).toLocaleString()+"개";
+  setSpinDisabled(busy || !activeId || !prizes.some(p=>p.remaining_qty>0));
 }
-
-function copyDefaults() {
-  return DEFAULT_PRIZES.map(p => ({
-    name:p.name,
-    qty:p.qty,
-    remaining:p.qty
-  }));
-}
-
-function persist() {
-  try {
-    localStorage.setItem(STORAGE_KEY,
-      JSON.stringify({events, activeId}));
-  } catch(e) {
-    alert("브라우저 저장 공간을 확인해주세요.");
-  }
-}
-
-function loadData() {
-  try {
-    const data = JSON.parse(
-      localStorage.getItem(STORAGE_KEY) || "null"
-    );
-
-    if(data && data.events) {
-      events = data.events;
-      activeId = data.activeId;
-    }
-  } catch(e) {}
-
-  if(!Object.keys(events).length) {
-    activeId = newId();
-
-    events[activeId] = {
-      name:"기본 이벤트",
-      prizes:copyDefaults()
-    };
-  }
-
-  if(!events[activeId]) {
-    activeId = Object.keys(events)[0];
-  }
-
-  loadEvent(activeId);
-}
-
-function loadEvent(id) {
-  activeId = id;
-
-  const event = events[id];
-
-  prizes = event.prizes.map(p => ({
-    name:p.name,
-    qty:p.qty,
-    remaining:p.remaining
-  }));
-
-  $("eventName").value = event.name;
-
-  rotation = 0;
-
-  renderEventSelect();
-  renderPrizes();
-  hideResults();
-  drawBoth();
-  setStatus("이벤트가 준비되었습니다.");
-
-  persist();
-}
-
-function saveEvent() {
-  events[activeId] = {
-    name:$("eventName").value.trim() || "새 이벤트",
-    prizes:prizes.map(p => ({...p}))
-  };
-
-  persist();
-  renderEventSelect();
-  $("eventSelect").value = activeId;
-}
-
 function renderEventSelect() {
-  const select = $("eventSelect");
-  select.innerHTML = "";
-
-  Object.entries(events).forEach(([id,event]) => {
-    const option = document.createElement("option");
-    option.value = id;
-    option.textContent = event.name;
-    select.appendChild(option);
-  });
-
+  const select = $("eventSelect"); select.replaceChildren();
+  for (const event of events) { const opt = document.createElement("option"); opt.value=event.id; opt.textContent=event.event_name; select.append(opt); }
   select.value = activeId;
 }
-
 function renderPrizes() {
-  const box = $("prizeList");
-  box.innerHTML = "";
-
-  prizes.forEach((prize,index) => {
-    const row = document.createElement("div");
-    row.className = "prize-row";
-
-    const swatch = document.createElement("div");
-    swatch.className = "swatch";
-    swatch.style.background = COLORS[index % COLORS.length];
-
-    const name = document.createElement("input");
-    name.value = prize.name;
-    name.setAttribute("aria-label","경품 이름");
-
-    name.addEventListener("change", () => {
-      prizes[index].name = name.value.trim() || "경품";
-      saveEvent();
-      drawBoth();
-    });
-
-    const qty = document.createElement("input");
-    qty.type = "number";
-    qty.min = "0";
-    qty.max = "999999";
-    qty.value = prize.qty;
-    qty.title = "초기 경품 수량";
-
-    qty.addEventListener("change", () => {
-      const value = Math.max(0,
-        Math.floor(Number(qty.value) || 0));
-
-      prizes[index].qty = value;
-      prizes[index].remaining = Math.min(
-        prizes[index].remaining, value
-      );
-
-      renderPrizes();
-      saveEvent();
-      drawBoth();
-    });
-
-    row.append(swatch,name,qty);
-    box.appendChild(row);
-  });
-
+  const box = $("prizeList"); box.replaceChildren();
+  for (const [index,prize] of prizes.entries()) {
+    const row=document.createElement("div"); row.className="prize-row";
+    const swatch=document.createElement("div"); swatch.className="swatch"; swatch.style.background=prize.color || COLORS[index%COLORS.length];
+    const name=document.createElement("input"); name.value=prize.prize_name; name.disabled=!isAdmin; name.setAttribute("aria-label","경품 이름");
+    name.addEventListener("change",()=>{ prize.prize_name=name.value.trim()||"경품"; drawBoth(); });
+    const qty=document.createElement("input"); qty.type="number"; qty.min="0"; qty.max="999999"; qty.value=prize.initial_qty; qty.disabled=!isAdmin; qty.title="초기 경품 수량";
+    qty.addEventListener("change",()=>{ prize.initial_qty=Math.max(0,Math.floor(Number(qty.value)||0)); prize.remaining_qty=Math.min(prize.remaining_qty,prize.initial_qty); updateTotal(); drawBoth(); });
+    row.append(swatch,name,qty); box.append(row);
+    const stock=document.createElement("div"); stock.className="note"; stock.style.margin="-4px 0 5px 18px";
+    stock.textContent=`${prize.prize_name} 남은 수량: ${prize.remaining_qty}개`;
+    box.append(stock);
+  }
   updateTotal();
 }
-
-function updateTotal() {
-  const total = prizes.reduce(
-    (sum,p) => sum + p.remaining, 0
-  );
-
-  $("totalQty").textContent =
-    total.toLocaleString() + "개";
-}
-
-function setStatus(message) {
-  $("status").textContent = message;
-  $("statusFull").textContent = message;
-}
-
-function hideResults() {
-  $("result").style.display = "none";
-  $("resultFull").style.display = "none";
-}
-
 function draw(canvasElement,context) {
-  const total = prizes.reduce(
-    (sum,p) => sum + p.remaining, 0
-  );
-
+  const total=prizes.reduce((n,p)=>n+p.remaining_qty,0);
   context.clearRect(0,0,900,900);
-
-  if(total <= 0) return;
-
-  let angle = rotation - Math.PI / 2;
-
-  prizes.forEach((prize,index) => {
-    if(prize.remaining <= 0) return;
-
-    const arc = Math.PI * 2 *
-      prize.remaining / total;
-
-    const start = angle;
-    const end = start + arc;
-
-    context.beginPath();
-    context.moveTo(450,450);
-    context.arc(450,450,415,start,end);
-    context.closePath();
-
-    context.fillStyle =
-      COLORS[index % COLORS.length];
-
-    context.fill();
-
-    context.strokeStyle = "#FFFFFF";
-    context.lineWidth = 4;
-    context.stroke();
-
-    if(arc > 0.045) {
-      context.save();
-
-      context.translate(450,450);
-      context.rotate(start + arc / 2);
-
-      context.textAlign = "right";
-      context.textBaseline = "middle";
-      context.fillStyle = "#FFFFFF";
-
-      context.font = "bold 25px Arial, sans-serif";
-
-      context.fillText(
-        prize.name,
-        385,
-        0
-      );
-
-      context.restore();
-    }
-
-    angle = end;
+  if(total<=0) return;
+  let angle=rotation-Math.PI/2;
+  prizes.forEach((prize,index)=>{
+    if(prize.remaining_qty<=0) return;
+    const arc=Math.PI*2*prize.remaining_qty/total;
+    const start=angle,end=start+arc;
+    context.beginPath(); context.moveTo(450,450); context.arc(450,450,415,start,end); context.closePath();
+    context.fillStyle=prize.color||COLORS[index%COLORS.length]; context.fill();
+    context.strokeStyle="#FFFFFF"; context.lineWidth=4; context.stroke();
+    if(arc>0.045) { context.save(); context.translate(450,450); context.rotate(start+arc/2);
+      context.textAlign="right"; context.textBaseline="middle"; context.fillStyle="#FFFFFF";
+      context.font="bold 25px Arial, sans-serif"; context.fillText(prize.prize_name,385,0); context.restore(); }
+    angle=end;
   });
-
-  context.beginPath();
-  context.arc(450,450,415,0,Math.PI*2);
-  context.strokeStyle = "#FFFFFF";
-  context.lineWidth = 9;
-  context.stroke();
+  context.beginPath(); context.arc(450,450,415,0,Math.PI*2);
+  context.strokeStyle="#FFFFFF"; context.lineWidth=9; context.stroke();
 }
-
-function drawBoth() {
-  draw(canvas,ctx);
-  draw(fullCanvas,fctx);
-}
-
-/* 수량에 비례한 랜덤 추첨 */
-
-function selectWinner() {
-  const total = prizes.reduce(
-    (sum,p) => sum + p.remaining, 0
-  );
-
-  if(total <= 0) return -1;
-
-  let random = Math.random() * total;
-
-  for(let i=0; i<prizes.length; i++) {
-    random -= prizes[i].remaining;
-
-    if(random < 0) return i;
-  }
-
-  return -1;
-}
-
-function spin() {
+function drawBoth() { draw(canvas,ctx); draw(fullCanvas,fctx); }
+async function loadEvents(preferredId=activeId) {
   if(busy) return;
-
-  const index = selectWinner();
-
-  if(index < 0) {
-    setStatus("남은 경품이 없습니다.");
-    return;
-  }
-
-  busy = true;
-
-  $("spin").disabled = true;
-  $("spinFull").disabled = true;
-
-  hideResults();
-
-  const total = prizes.reduce(
-    (sum,p) => sum + p.remaining, 0
-  );
-
-  const arc = Math.PI * 2 *
-    prizes[index].remaining / total;
-
-  let before = 0;
-
-  for(let i=0; i<index; i++) {
-    before += Math.PI * 2 *
-      prizes[i].remaining / total;
-  }
-
-  const target =
-    -(before + arc / 2);
-
-  const current =
-    ((rotation % (Math.PI*2)) + Math.PI*2) %
-    (Math.PI*2);
-
-  let delta =
-    ((target-current) % (Math.PI*2) + Math.PI*2) %
-    (Math.PI*2);
-
-  delta += Math.PI*2*(5 +
-    Math.floor(Math.random()*3));
-
-  const start = rotation;
-  const duration = 4800;
-  const begin = performance.now();
-
-  setStatus("행운의 경품을 추첨하고 있습니다...");
-
-  function animate(now) {
-    const progress = Math.min(
-      1,(now-begin)/duration
-    );
-
-    const ease =
-      1-Math.pow(1-progress,5);
-
-    rotation = start + delta*ease;
-
-    drawBoth();
-
-    if(progress < 1) {
+  const seq=++loadSeq;
+  const {data,error}=await db.from("events").select("id,event_name,is_active").order("created_at",{ascending:true});
+  if(error) throw error;
+  if(seq!==loadSeq || busy) return;
+  events=data||[];
+  const nextId=events.some(e=>e.id===preferredId)?preferredId:(events[0]?.id||"");
+  activeId=nextId; renderEventSelect();
+  if(!activeId) { prizes=[]; $("eventName").value=""; renderPrizes(); drawBoth(); setStatus(isAdmin?"새 이벤트를 생성해 주세요.":"사용 가능한 이벤트가 없습니다."); return; }
+  await loadEvent(activeId);
+}
+async function loadEvent(id) {
+  if(busy) return;
+  const seq=++loadSeq;
+  const event=events.find(e=>e.id===id);
+  if(!event) return;
+  const {data,error}=await db.from("prizes").select("id,event_id,prize_name,initial_qty,remaining_qty,display_order,color").eq("event_id",id).order("display_order",{ascending:true}).order("id",{ascending:true});
+  if(error) throw error;
+  if(seq!==loadSeq || busy) return;
+  activeId=id; prizes=data||[]; rotation=0;
+  $("eventName").value=event.event_name; renderEventSelect(); renderPrizes(); hideResults(); drawBoth();
+  setStatus(event.is_active?"이벤트가 준비되었습니다.":"비활성화된 이벤트입니다.");
+  setSpinDisabled(!event.is_active || !prizes.some(p=>p.remaining_qty>0));
+}
+function scheduleRefresh() {
+  if(refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer=setTimeout(async()=>{
+    if(busy) { scheduleRefresh(); return; }
+    try { await loadEvents(); } catch(e) { console.error("동기화 실패",e); setStatus("동기화 오류: 새로고침해 주세요."); }
+  },500);
+}
+function startRealtime() {
+  if(subscription) db.removeChannel(subscription);
+  subscription=db.channel("roulette-changes")
+    .on("postgres_changes",{event:"*",schema:"public",table:"events"},scheduleRefresh)
+    .on("postgres_changes",{event:"*",schema:"public",table:"prizes"},scheduleRefresh)
+    .subscribe(status=>{if(status==="CHANNEL_ERROR"||status==="TIMED_OUT") setStatus("실시간 연결이 불안정합니다. 새로고침해 주세요.");});
+}
+async function spin() {
+  if(busy || !activeId) return;
+  const event=events.find(e=>e.id===activeId);
+  if(!event?.is_active) {setStatus("비활성 이벤트는 추첨할 수 없습니다."); return;}
+  busy=true; setSpinDisabled(true); hideResults();
+  const eventId=activeId;
+  const snapshot=prizes.map(p=>({...p}));
+  setStatus("당첨 결과를 확인하고 있습니다...");
+  try {
+    // 추첨과 재고 차감은 서버의 단일 트랜잭션에서 완료됩니다.
+    const {data,error}=await db.rpc("spin_event",{p_event_id:eventId});
+    if(error) throw error;
+    const winner=data?.[0];
+    if(!winner) throw new Error("당첨 결과를 받지 못했습니다. 관리자에게 재고를 확인해 주세요.");
+    const index=snapshot.findIndex(p=>p.id===winner.prize_id);
+    if(index<0) {setStatus(`${winner.prize_name} 당첨!`); $("winner").textContent=winner.prize_name; $("winnerFull").textContent=winner.prize_name; $("result").style.display="block"; $("resultFull").style.display="block"; return;}
+    const total=snapshot.reduce((n,p)=>n+p.remaining_qty,0);
+    const arc=Math.PI*2*snapshot[index].remaining_qty/total;
+    const before=snapshot.slice(0,index).reduce((n,p)=>n+Math.PI*2*p.remaining_qty/total,0);
+    const target=-(before+arc/2);
+    const current=((rotation%(Math.PI*2))+Math.PI*2)%(Math.PI*2);
+    let delta=((target-current)%(Math.PI*2)+Math.PI*2)%(Math.PI*2);
+    delta+=Math.PI*2*(5+Math.floor(Math.random()*3));
+    const start=rotation, begin=performance.now(), duration=4800;
+    setStatus("룰렛이 돌아가고 있습니다...");
+    await new Promise(resolve=>{
+      function animate(now) {
+        const progress=Math.min(1,(now-begin)/duration);
+        rotation=start+delta*(1-Math.pow(1-progress,5)); drawBoth();
+        if(progress<1) requestAnimationFrame(animate); else resolve();
+      }
       requestAnimationFrame(animate);
-      return;
+    });
+    rotation=target;
+    $("winner").textContent=winner.prize_name; $("winnerFull").textContent=winner.prize_name;
+    $("result").style.display="block"; $("resultFull").style.display="block";
+    setStatus(`${winner.prize_name} 당첨! 재고가 서버에서 차감되었습니다.`);
+  } catch(e) {
+    console.error(e);
+    setStatus("추첨 오류: "+errorText(e));
+    // 네트워크 오류의 경우 서버 차감 여부가 불확실할 수 있으므로 재고 확인 권고
+    if(/fetch|network|timeout/i.test(errorText(e))) alert("통신 오류가 발생했습니다. 서버에서 이미 추첨됐을 수 있으니 재고를 확인한 후 다시 시도하세요.");
+  } finally {
+    busy=false;
+    try { await loadEvents(eventId); } catch(e) {console.error(e); setStatus("재고 새로고침 실패. 페이지를 새로고침해 주세요.");}
+  }
+}
+async function saveEvent() {
+  if(!isAdmin || !activeId || busy) return;
+  $("save").disabled=true;
+  try {
+    const name=$("eventName").value.trim()||"새 이벤트";
+    const {error:eError}=await db.from("events").update({event_name:name,updated_at:new Date().toISOString()}).eq("id",activeId);
+    if(eError) throw eError;
+    // 서버의 현재 재고를 다시 읽고, 기존 차감량을 유지하면서 초기 수량만 수정합니다.
+    const {data:server,error:rError}=await db.from("prizes").select("id,initial_qty,remaining_qty").eq("event_id",activeId);
+    if(rError) throw rError;
+    const byId=new Map((server||[]).map(p=>[p.id,p]));
+    for(const p of prizes) {
+      const old=byId.get(p.id);
+      if(!old) continue;
+      const initial=Math.max(0,Math.floor(Number(p.initial_qty)||0));
+      const remaining=Math.min(old.remaining_qty,initial);
+      const {error}=await db.from("prizes").update({prize_name:p.prize_name,initial_qty:initial,remaining_qty:remaining,updated_at:new Date().toISOString()}).eq("id",p.id);
+      if(error) throw error;
     }
-
-    rotation = target;
-
-    // 당첨된 경품 한 개 차감
-    prizes[index].remaining--;
-
-    saveEvent();
-    renderPrizes();
-    drawBoth();
-
-    const winner = prizes[index].name;
-
-    $("winner").textContent = winner;
-    $("winnerFull").textContent = winner;
-
-    $("result").style.display = "block";
-    $("resultFull").style.display = "block";
-
-    setStatus(
-      winner + " 당첨! 남은 경품 " +
-      prizes.reduce((s,p) => s+p.remaining,0) +
-      "개"
-    );
-
-    busy = false;
-
-    $("spin").disabled = false;
-    $("spinFull").disabled = false;
-  }
-
-  requestAnimationFrame(animate);
+    await loadEvents(activeId); setStatus("이벤트 설정이 저장되었습니다.");
+  } catch(e) {showError(e);} finally {$("save").disabled=false;}
 }
-
-/* 이벤트 관리 */
-
-$("save").onclick = () => {
-  saveEvent();
-  setStatus("이벤트가 저장되었습니다.");
-};
-
-$("eventName").addEventListener("change",saveEvent);
-
-$("eventSelect").onchange = e => {
-  loadEvent(e.target.value);
-};
-
-$("newEvent").onclick = () => {
-  const id = newId();
-
-  events[id] = {
-    name:"새 이벤트",
-    prizes:copyDefaults()
-  };
-
-  persist();
-  loadEvent(id);
-
-  $("eventName").focus();
-  $("eventName").select();
-};
-
-$("deleteEvent").onclick = () => {
-  if(Object.keys(events).length <= 1) {
-    alert("최소 하나의 이벤트가 필요합니다.");
-    return;
-  }
-
-  if(!confirm("현재 이벤트를 삭제할까요?")) return;
-
-  delete events[activeId];
-
-  activeId = Object.keys(events)[0];
-
-  persist();
-  loadEvent(activeId);
-};
-
-$("resetStock").onclick = () => {
-  if(!confirm("경품 수량을 초기화할까요?")) return;
-
-  prizes.forEach(p => {
-    p.remaining = p.qty;
-  });
-
-  saveEvent();
-  renderPrizes();
-  drawBoth();
-  hideResults();
-
-  setStatus("경품 수량이 초기화되었습니다.");
-};
-
-/* 전체 화면 */
-
-const full = $("fullScreen");
-
-$("fullscreenBtn").onclick = async () => {
-  full.classList.add("active");
-
-  if(full.requestFullscreen) {
-    try { await full.requestFullscreen(); }
-    catch(e) {}
-  }
-};
-
-function closeFullscreen() {
-  full.classList.remove("active");
-
-  if(document.fullscreenElement) {
-    document.exitFullscreen().catch(()=>{});
-  }
+async function newEvent() {
+  if(!isAdmin||busy) return;
+  $("newEvent").disabled=true;
+  try {
+    const {data:event,error}=await db.from("events").insert({event_name:"새 이벤트",created_by:currentUser.id}).select("id").single();
+    if(error) throw error;
+    const rows=DEFAULT_PRIZES.map((p,i)=>({event_id:event.id,prize_name:p.prize_name,initial_qty:p.initial_qty,remaining_qty:p.initial_qty,display_order:i,color:COLORS[i%COLORS.length]}));
+    const {error:prizeError}=await db.from("prizes").insert(rows);
+    if(prizeError) throw new Error(`이벤트는 생성됐지만 경품 등록에 실패했습니다: ${prizeError.message}`);
+    await loadEvents(event.id); $("eventName").focus(); $("eventName").select();
+  } catch(e) {showError(e); scheduleRefresh();} finally {$("newEvent").disabled=false;}
 }
-
-$("exitFullscreen").onclick = closeFullscreen;
-
-document.addEventListener("fullscreenchange",() => {
-  if(!document.fullscreenElement) {
-    full.classList.remove("active");
-  }
-});
-
-document.addEventListener("keydown",e => {
-  if(e.key === "Escape") closeFullscreen();
-});
-
-/* 버튼 연결 */
-
-$("spin").onclick = spin;
-$("spinFull").onclick = spin;
-
-/* 시작 */
-
-loadData();
-
+async function deleteEvent() {
+  if(!isAdmin||busy||!activeId) return;
+  if(events.length<=1) return alert("최소 하나의 이벤트를 유지해 주세요.");
+  if(!confirm("현재 이벤트와 모든 경품 재고를 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) return;
+  const id=activeId;
+  const {error}=await db.from("events").delete().eq("id",id);
+  if(error) return showError(error);
+  await loadEvents("");
+}
+async function resetStock() {
+  if(!isAdmin||busy||!activeId) return;
+  if(!confirm("현재 이벤트의 모든 경품 재고를 초기 수량으로 되돌릴까요? 다른 직원이 추첨 중이지 않은지 먼저 확인해 주세요.")) return;
+  try {
+    // 관리자에게만 허용되는 업데이트. 운영 중에는 직원 추첨을 중지하고 사용하세요.
+    const {data,error}=await db.from("prizes").select("id,initial_qty").eq("event_id",activeId);
+    if(error) throw error;
+    for(const p of data) {
+      const {error:updateError}=await db.from("prizes").update({remaining_qty:p.initial_qty,updated_at:new Date().toISOString()}).eq("id",p.id);
+      if(updateError) throw updateError;
+    }
+    await loadEvents(activeId); setStatus("경품 수량이 초기화되었습니다.");
+  } catch(e) {showError(e);}
+}
+async function showApp(session) {
+  currentUser=session.user;
+  const {data,error}=await db.from("profiles").select("role").eq("id",currentUser.id).single();
+  if(error) throw new Error("프로필을 읽을 수 없습니다: "+error.message);
+  isAdmin=data.role==="admin";
+  document.body.classList.toggle("is-admin",isAdmin);
+  $("authScreen").style.display="none"; $("sessionBar").style.display="flex"; $("appMain").style.display="grid";
+  $("sessionInfo").textContent=`${currentUser.email} · ${isAdmin?"관리자":"직원"}`;
+  $("asideTitle").textContent=isAdmin?"이벤트 관리":"이벤트 현황";
+  $("eventName").disabled=!isAdmin;
+  await loadEvents(); startRealtime();
+}
+async function signOut() {
+  if(subscription) {await db.removeChannel(subscription); subscription=null;}
+  const {error}=await db.auth.signOut(); if(error) return showError(error);
+  currentUser=null; isAdmin=false; events=[]; activeId=""; prizes=[];
+  $("authScreen").style.display="grid"; $("sessionBar").style.display="none"; $("appMain").style.display="none";
+  $("loginPassword").value=""; document.body.classList.remove("is-admin");
+}
+$("loginBtn").onclick=async()=>{
+  $("authError").textContent="";
+  if(!db) return;
+  $("loginBtn").disabled=true;
+  try {
+    const {data,error}=await db.auth.signInWithPassword({email:$("loginEmail").value.trim(),password:$("loginPassword").value});
+    if(error) throw error;
+    await showApp(data.session);
+  } catch(e) {$("authError").textContent=errorText(e);} finally {$("loginBtn").disabled=false;}
+};
+$("loginPassword").addEventListener("keydown",e=>{if(e.key==="Enter") $("loginBtn").click();});
+$("logoutBtn").onclick=signOut;
+$("eventSelect").onchange=async e=>{try{await loadEvent(e.target.value);}catch(err){showError(err);}};
+$("save").onclick=saveEvent; $("newEvent").onclick=newEvent;
+$("deleteEvent").onclick=deleteEvent; $("resetStock").onclick=resetStock;
+$("spin").onclick=spin; $("spinFull").onclick=spin;
+const full=$("fullScreen");
+$("fullscreenBtn").onclick=async()=>{full.classList.add("active"); if(full.requestFullscreen){try{await full.requestFullscreen();}catch(e){}}};
+function closeFullscreen(){full.classList.remove("active");if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});}
+$("exitFullscreen").onclick=closeFullscreen;
+document.addEventListener("fullscreenchange",()=>{if(!document.fullscreenElement)full.classList.remove("active");});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeFullscreen();});
+window.addEventListener("focus",()=>{if(currentUser&&!busy)scheduleRefresh();});
+(async()=>{
+  if(!configured) {$("authError").textContent="먼저 HTML 파일에 Supabase Project URL과 Publishable key를 입력해 주세요."; $("loginBtn").disabled=true;return;}
+  if(!window.supabase?.createClient){$("authError").textContent="Supabase 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.";return;}
+  db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+  try {const {data,error}=await db.auth.getSession();if(error)throw error;if(data.session)await showApp(data.session);}catch(e){$("authError").textContent=errorText(e);}
+})();
 </script>
 
 </body>
